@@ -1,9 +1,9 @@
 ### Declarative LOB — Quickstart
 
 This repository contains:
-- `LOB/PintLOB/` — a Pint-based orderbook contract (`.pnt`) and its std library
-- `LOB/Solver/` — a Rust project with tests against the orderbook logic
-
+- `LOB/PintLOB/` — a Pint-based declarative orderbook contract (`.pnt`) and its std library
+- `LOB/Solver/` — a Rust solver that proposes solution to Pint smart contract with tests against the orderbook logic
+- `LOB/SolidityLOB/` - a reference declarative orderbook implementation in solidity
 Follow these steps to get set up and run tests.
 
 ---
