@@ -1,0 +1,300 @@
+//NOTE: The following macros are used to verify/settle bids and asks for limit orders
+
+macro @verify_bids($partial_amount, $x, $y, &rest){
+    //mutable storage
+    let temp_order: order = mut storage::bid_orders[$x.index];
+    let first_order_index = mut storage::first_bid_order;
+    let bal0: int = mut storage::balances_0[temp_order.addr];
+    let bal1: int = mut storage::balances_1[temp_order.addr];
+
+    constraint temp_order.next_key == $y.index || $y.index == 0;
+    
+    if ($x.index != 0) {
+        constraint temp_order.auth == $x.auth;
+
+        if ($y.index != 0) {
+            constraint bal0' == bal0 - temp_order.max_amnt * temp_order.price;
+            constraint bal1' == bal1 + temp_order.max_amnt;
+        }
+        else {
+            constraint bal0' == bal0 - $partial_amount * temp_order.price;
+            constraint bal1' == bal1 + $partial_amount;
+            if(temp_order.max_amnt - $partial_amount == 0){
+                constraint first_order_index' == temp_order.next_key;
+            }else{
+                constraint first_order_index' == $x.index;
+            }
+        }
+        constraint bal0' >= 0;
+        if($x.index != 0 && $y.index == 0 && temp_order.max_amnt - $partial_amount != 0){
+            constraint temp_order'.max_amnt == temp_order.max_amnt - $partial_amount;
+            constraint temp_order'.price == temp_order.price;
+            constraint temp_order'.isBid == temp_order.isBid;
+            constraint temp_order'.addr == temp_order.addr;
+            constraint temp_order'.auth == temp_order.auth;
+            constraint temp_order'.next_key == temp_order.next_key;
+        }else if($x.index != 0){
+            constraint temp_order'.max_amnt == 0;
+            constraint temp_order'.price == 0;
+            constraint temp_order'.isBid == false;
+            constraint temp_order'.addr == 0x0000000000000000000000000000000000000000000000000000000000000000;
+            constraint temp_order'.auth == 0x0000000000000000000000000000000000000000000000000000000000000000;
+            constraint temp_order'.next_key == 0;
+        }
+    }
+    @verify_bids($partial_amount; $y; &rest);
+}
+
+macro @verify_bids($partial_amount, $x, $y){
+    //mutable storage
+    let temp_order: order = mut storage::bid_orders[$x.index];
+    let first_order_index = mut storage::first_bid_order;
+    let bal0: int = mut storage::balances_0[temp_order.addr];
+    let bal1: int = mut storage::balances_1[temp_order.addr];
+    
+    constraint temp_order.next_key == $y.index || $y.index == 0;
+
+    if ($x.index != 0) {
+        constraint temp_order.auth == $x.auth;
+
+        if ($y.index != 0) {
+            constraint bal0' == bal0 - temp_order.max_amnt * temp_order.price;
+            constraint bal1' == bal1 + temp_order.max_amnt;
+        }
+        else {
+            constraint bal0' == bal0 - $partial_amount * temp_order.price;
+            constraint bal1' == bal1 + $partial_amount;
+            if(temp_order.max_amnt - $partial_amount == 0){
+                constraint first_order_index' == temp_order.next_key;
+            }else{
+                constraint first_order_index' == $x.index;
+            }
+        }
+        constraint bal0' >= 0;
+        if($x.index != 0 && $y.index == 0 && temp_order.max_amnt - $partial_amount != 0){
+            constraint temp_order'.max_amnt == temp_order.max_amnt - $partial_amount;
+            constraint temp_order'.price == temp_order.price;
+            constraint temp_order'.isBid == temp_order.isBid;
+            constraint temp_order'.addr == temp_order.addr;
+            constraint temp_order'.auth == temp_order.auth;
+            constraint temp_order'.next_key == temp_order.next_key;
+        }else if($x.index != 0){
+            constraint temp_order'.max_amnt == 0;
+            constraint temp_order'.price == 0;
+            constraint temp_order'.isBid == false;
+            constraint temp_order'.addr == 0x0000000000000000000000000000000000000000000000000000000000000000;
+            constraint temp_order'.auth == 0x0000000000000000000000000000000000000000000000000000000000000000;
+            constraint temp_order'.next_key == 0;
+        }
+    }
+    @verify_bids($partial_amount; $y);
+}
+
+macro @verify_bids($partial_amount, $x){
+    //mutable storage
+    let temp_order: order = mut storage::bid_orders[$x.index];
+    let first_order_index = mut storage::first_bid_order;
+    let bal0: int = mut storage::balances_0[temp_order.addr];
+    let bal1: int = mut storage::balances_1[temp_order.addr];
+    
+    if ($x.index != 0) {
+        constraint temp_order.auth == $x.auth;
+
+        constraint bal0' == bal0 - $partial_amount * temp_order.price;
+        constraint bal1' == bal1 + $partial_amount;
+        constraint bal0' >= 0;
+        if(temp_order.max_amnt - $partial_amount == 0){
+            constraint temp_order'.max_amnt == 0;
+            constraint temp_order'.price == 0;
+            constraint temp_order'.isBid == false;
+            constraint temp_order'.addr == 0x0000000000000000000000000000000000000000000000000000000000000000;
+            constraint temp_order'.auth == 0x0000000000000000000000000000000000000000000000000000000000000000;
+            constraint temp_order'.next_key == 0;
+            constraint first_order_index' == temp_order.next_key;
+        }else{
+            constraint temp_order'.max_amnt == temp_order.max_amnt - $partial_amount;
+            constraint temp_order'.price == temp_order.price;
+            constraint temp_order'.isBid == temp_order.isBid;
+            constraint temp_order'.addr == temp_order.addr;
+            constraint temp_order'.auth == temp_order.auth;
+            constraint temp_order'.next_key == temp_order.next_key;
+            constraint first_order_index' == $x.index;
+        }
+    }
+}
+
+
+macro @verify_asks($partial_amount, $x, $y, &rest){
+    //mutable storage
+    let temp_order: order = mut storage::ask_orders[$x.index];
+    let first_order_index = mut storage::first_ask_order;
+    let bal0: int = mut storage::balances_0[temp_order.addr];
+    let bal1: int = mut storage::balances_1[temp_order.addr];
+
+    constraint temp_order.next_key == $y.index || $y.index == 0;
+    
+    if ($x.index != 0) {
+        constraint temp_order.auth == $x.auth;
+
+        if ($y.index != 0) {
+            constraint bal0' == bal0 + temp_order.max_amnt * temp_order.price;
+            constraint bal1' == bal1 - temp_order.max_amnt;
+        }
+        else {
+            constraint bal0' == bal0 + $partial_amount * temp_order.price;
+            constraint bal1' == bal1 - $partial_amount;
+            if(temp_order.max_amnt - $partial_amount == 0){
+                constraint first_order_index' == temp_order.next_key;
+            }else{
+                constraint first_order_index' == $x.index;
+            }
+        }
+        constraint bal1' >= 0;
+        if($x.index != 0 && $y.index == 0 && temp_order.max_amnt - $partial_amount != 0){
+            constraint temp_order'.max_amnt == temp_order.max_amnt - $partial_amount;
+            constraint temp_order'.price == temp_order.price;
+            constraint temp_order'.isBid == temp_order.isBid;
+            constraint temp_order'.addr == temp_order.addr;
+            constraint temp_order'.auth == temp_order.auth;
+            constraint temp_order'.next_key == temp_order.next_key;
+        }else if($x.index != 0){
+            constraint temp_order'.max_amnt == 0;
+            constraint temp_order'.price == 0;
+            constraint temp_order'.isBid == false;
+            constraint temp_order'.addr == 0x0000000000000000000000000000000000000000000000000000000000000000;
+            constraint temp_order'.auth == 0x0000000000000000000000000000000000000000000000000000000000000000;
+            constraint temp_order'.next_key == 0;
+        }
+    }
+    @verify_asks($partial_amount; $y; &rest);
+}
+
+macro @verify_asks($partial_amount, $x, $y){
+    //mutable storage
+    let temp_order: order = mut storage::ask_orders[$x.index];
+    let first_order_index = mut storage::first_ask_order;
+    let bal0: int = mut storage::balances_0[temp_order.addr];
+    let bal1: int = mut storage::balances_1[temp_order.addr];
+
+    constraint temp_order.next_key == $y.index || $y.index == 0;
+
+    if ($x.index != 0) {
+        constraint temp_order.auth == $x.auth;
+
+        if ($y.index != 0) {
+            constraint bal0' == bal0 + temp_order.max_amnt * temp_order.price;
+            constraint bal1' == bal1 - temp_order.max_amnt;
+        }
+        else {
+            constraint bal0' == bal0 + $partial_amount * temp_order.price;
+            constraint bal1' == bal1 - $partial_amount;
+            if(temp_order.max_amnt - $partial_amount == 0){
+                constraint first_order_index' == temp_order.next_key;
+            }else{
+                constraint first_order_index' == $x.index;
+            }
+        }
+        constraint bal1' >= 0;
+    }
+    @verify_asks($partial_amount; $y);
+}
+
+macro @verify_asks($partial_amount, $x){
+    //mutable storage
+    let temp_order: order = mut storage::ask_orders[$x.index];
+    let first_order_index = mut storage::first_ask_order;
+    let bal0: int = mut storage::balances_0[temp_order.addr];
+    let bal1: int = mut storage::balances_1[temp_order.addr];
+    
+    if ($x.index != 0) {
+        constraint temp_order.auth == $x.auth;
+
+        constraint bal0' == bal0 + $partial_amount * temp_order.price;
+        constraint bal1' == bal1 - $partial_amount;
+        constraint bal1' >= 0;
+        
+    }
+}
+
+// NOTE: The following macros are used to calculate total amount of bids and asks
+
+macro @sum_zero_bid($sum, $x, &rest) {
+    @sum_zero_bid($sum + storage::bid_orders[$x.index].max_amnt * storage::bid_orders[$x.index].price; &rest)
+}
+
+macro @sum_zero_bid($sum, $x) {
+    $sum + storage::bid_orders[$x.index].max_amnt * storage::bid_orders[$x.index].price
+}
+
+macro @sum_one_bid($sum, $x, &rest) {
+    @sum_one_bid($sum + storage::bid_orders[$x.index].max_amnt; &rest)
+}
+
+macro @sum_one_bid($sum, $x) {
+    $sum + storage::bid_orders[$x.index].max_amnt
+}
+
+macro @sum_zero_ask($sum, $x, &rest) {
+    @sum_zero_ask($sum + storage::ask_orders[$x.index].max_amnt * storage::ask_orders[$x.index].price; &rest)
+}
+
+macro @sum_zero_ask($sum, $x) {
+    $sum + storage::ask_orders[$x.index].max_amnt * storage::ask_orders[$x.index].price
+}
+
+macro @sum_one_ask($sum, $x, &rest) {
+    @sum_one_ask($sum + storage::ask_orders[$x.index].max_amnt; &rest)
+}
+
+macro @sum_one_ask($sum, $x) {
+    $sum + storage::ask_orders[$x.index].max_amnt
+}
+
+macro @sum_market($sum, $x, &rest) {
+    @sum_market($sum + $x.amount; &rest)
+}
+
+macro @sum_market($sum, $x) {
+    $sum + $x.amount
+}
+
+macro @distribute_market_orders_bids($avg_price, $x, &rest) { // 0 for 1
+    let bal0: int = mut storage::balances_0[$x.addr]; // lose
+    let bal1: int = mut storage::balances_1[$x.addr]; // gain
+
+    constraint bal0' == bal0 - $avg_price * $x.amount;
+    constraint bal1' == bal1 + $x.amount;
+    constraint bal0' >= 0;
+
+    @distribute_market_orders_bids($avg_price; &rest);
+}
+
+macro @distribute_market_orders_bids($avg_price, $x) {
+    let bal0: int = mut storage::balances_0[$x.addr]; // lose
+    let bal1: int = mut storage::balances_1[$x.addr]; // gain
+
+    constraint bal0' == bal0 - $avg_price * $x.amount;
+    constraint bal1' == bal1 + $x.amount;
+    constraint bal0' >= 0;
+}
+
+macro @distribute_market_orders_asks($avg_price, $x, &rest) { // 1 for 0
+    let bal0: int = mut storage::balances_0[$x.addr]; // gain
+    let bal1: int = mut storage::balances_1[$x.addr]; // lose
+
+    constraint bal0' == bal0 + $avg_price * $x.amount;
+    constraint bal1' == bal1 - $x.amount;
+    constraint bal1' >= 0;
+
+    @distribute_market_orders_asks($avg_price; &rest);
+}
+
+macro @distribute_market_orders_asks($avg_price, $x) {
+    let bal0: int = mut storage::balances_0[$x.addr]; // gain
+    let bal1: int = mut storage::balances_1[$x.addr]; // lose
+
+    constraint bal0' == bal0 + $avg_price * $x.amount;
+    constraint bal1' == bal1 - $x.amount;
+    constraint bal1' >= 0;
+}
+

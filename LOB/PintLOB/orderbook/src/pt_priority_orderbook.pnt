@@ -1,0 +1,428 @@
+use std::lib::@verify_bids;
+use std::lib::@verify_asks;
+
+use std::lib::@sum_zero_bid;
+use std::lib::@sum_zero_ask;
+use std::lib::@sum_one_bid;
+use std::lib::@sum_one_ask;
+
+use std::lib::@sum_market;
+use std::lib::@distribute_market_orders_bids;
+use std::lib::@distribute_market_orders_asks;
+
+
+type order = { // order named-tuple 
+    max_amnt: int,
+    price: int, 
+    isBid: bool,
+    addr: b256,
+    auth: b256,
+    next_key: int,
+};
+
+type add_order = {
+    order: order,
+    index: int,
+};
+
+type settle_order = {
+    index: int,
+    auth: b256,
+};
+
+type market_order = {
+    amount: int,
+    addr: b256,
+    auth: b256,
+};
+
+// isBid is true for 0 -> 1 swaps, false for 1 -> 0 swaps
+
+storage {
+    balances_0: (b256 => int), // addresses mapped to internal balances
+    balances_1: (b256 => int), // addresses mapped to internal balances
+
+    bid_orders: (int => order), // orderbook
+    ask_orders: (int => order), // orderbook
+
+    first_bid_order: int, // index of first bid order (frontmost order)
+
+    first_ask_order: int, // index of first ask order (frontmost order)
+
+    number_of_bid_orders: int, // number of orders in the orderbook
+    number_of_ask_orders: int, // number of orders in the orderbook
+    
+    this_address: b256, // address of the contract
+}
+predicate deposit(amount0: int, amount1: int, addr: b256, key: b256, auth: b256){
+    let bal0: int = mut storage::balances_0[addr];
+    let bal1: int = mut storage::balances_1[addr];
+
+    constraint amount0 >= 0;
+    constraint amount1 >= 0;
+
+    constraint (bal0 == nil && bal0' == amount0) || (bal0' == bal0 + amount0);
+    constraint (bal1 == nil && bal1' == amount1) || (bal1' == bal1 + amount1);
+
+} 
+
+predicate withdraw(amount0: int, amount1: int, addr: b256, key: b256, auth: b256){
+    let bal0: int = mut storage::balances_0[addr];
+    let bal1: int = mut storage::balances_1[addr];
+
+    constraint amount0 >= 0;
+    constraint amount1 >= 0;
+
+    constraint bal0' == bal0 - amount0;
+    constraint bal1' == bal1 - amount1;
+    constraint bal0' >= 0;
+    constraint bal1' >= 0;
+    
+}
+
+predicate addLimitOrderBid(leading_key: int, trailing_key: int, new_order: order, new_index: int){
+    //mutate storage
+    let new_slot: order = mut storage::bid_orders[new_index];
+    let leading_order_next: int =  mut storage::bid_orders[leading_key].next_key;
+    let first_order_index: int = mut storage::first_bid_order;
+    //read storage
+    let leading_order_price: int =  storage::bid_orders[leading_key].price;
+    let trailing_order_price: int =  storage::bid_orders[trailing_key].price;
+
+
+    //verify solver gave empty slot and update    
+    constraint new_slot == nil;
+    constraint new_slot' == new_order;
+
+    //update leading order
+    if (leading_key != 0) { //new order is not the first order
+        constraint leading_order_next == trailing_key;
+        constraint leading_order_next' == new_index;
+    }
+
+    //verify order info
+    constraint new_order.max_amnt > 0;
+    constraint new_order.price > 0;
+    constraint new_index > 0; //0 index is nil order
+
+    //verify the user has enough balance
+    let bal0: int = storage::balances_0[new_order.addr];
+    constraint bal0 >= new_order.max_amnt * new_order.price;
+
+    
+    constraint new_order.next_key == trailing_key; // this should happen regardless of the case
+
+    if (trailing_key == 0) { //there is no order or new index is the last order in the linked list, or new order is the first order
+        constraint new_order.next_key == 0;
+        constraint leading_order_next == 0 || leading_order_next == nil;
+    }
+
+    if (leading_key != 0 && trailing_key != 0) { //new order is not the first order and there is an order after it
+        constraint leading_order_next == trailing_key;
+    }
+
+    // if this is the best order price-wise, verify and update the first order pointer
+    if (leading_key == 0) {
+        constraint first_order_index' == new_index;
+        constraint first_order_index == trailing_key;
+    }else{
+        // first order index is not changing
+        constraint first_order_index' == first_order_index;
+    }
+
+    // verifies that the new order is in correct price-time priority order
+    if(leading_order_price != nil && leading_order_price != 0){
+        constraint new_order.price <= leading_order_price; 
+    }
+
+    if (leading_order_next != 0 && leading_order_next != nil) { 
+        constraint new_order.price > trailing_order_price; 
+    }
+
+}
+
+predicate removeLimitOrderBid(leading_key: int, trailing_key: int, middle_index: int){
+    //mutate storage
+    let middle_slot: order = mut storage::bid_orders[middle_index];
+    let leading_order_next: int =  mut storage::bid_orders[leading_key].next_key;
+    let first_order_index: int = mut storage::first_bid_order;
+    //read storage
+    let leading_order_price: int =  storage::bid_orders[leading_key].price;
+    let trailing_order_price: int =  storage::bid_orders[trailing_key].price;
+
+
+    //verify solver updated the middle order to zero 
+    constraint middle_slot'.max_amnt == 0;
+    constraint middle_slot'.price == 0;
+    constraint middle_slot'.isBid == false;
+    constraint middle_slot'.addr == 0x0000000000000000000000000000000000000000000000000000000000000000;
+    constraint middle_slot'.auth == 0x0000000000000000000000000000000000000000000000000000000000000000;
+    constraint middle_slot'.next_key == 0;
+
+    //update leading order
+    if (leading_key != 0) { //middle order is not the first order
+        constraint leading_order_next' == trailing_key;
+        constraint leading_order_next == middle_index;
+    }
+
+    //verify order info
+    constraint middle_index > 0; //0 index is nil order
+
+    
+    constraint middle_slot.next_key == trailing_key; // this should happen regardless of the case
+
+    if (trailing_key == 0) { //there is no order or new index is the last order in the linked list, or new order is the first order
+        constraint leading_order_next' == 0;
+    }
+
+    if (leading_key != 0 && trailing_key != 0) { //new order is not the first order and there is an order after it
+        constraint leading_order_next' == trailing_key;
+    }
+
+    // if this is the best order price-wise, verify and update the first order pointer
+    if (leading_key == 0) {
+        constraint first_order_index == middle_index;
+        constraint first_order_index' == trailing_key;
+    }else{
+        // first order index is not changing
+        constraint first_order_index' == first_order_index;
+    }
+
+}
+
+predicate addLimitOrderAsk(leading_key: int, trailing_key: int, new_order: order, new_index: int){
+    //mutate storage
+    let new_slot: order = mut storage::ask_orders[new_index];
+    let leading_order_next: int =  mut storage::ask_orders[leading_key].next_key;
+    let first_order_index: int = mut storage::first_ask_order;
+    //read storage
+    let leading_order_price: int =  storage::ask_orders[leading_key].price;
+    let trailing_order_price: int =  storage::ask_orders[trailing_key].price;
+
+    //verify solver gave empty slot and update    
+    constraint new_slot == nil;
+    constraint new_slot' == new_order;
+
+    //update leading order
+    if (leading_key != 0) { //new order is not the first order
+        constraint leading_order_next == trailing_key;
+        constraint leading_order_next' == new_index;
+    }
+
+    //verify order info
+    constraint new_order.max_amnt > 0;
+    constraint new_order.price > 0;
+    constraint new_index > 0; //0 index is nil order
+
+    //verify the user has enough balance
+    let bal1: int = storage::balances_1[new_order.addr];
+    constraint bal1 >= new_order.max_amnt;
+
+    constraint new_order.next_key == trailing_key; // this should happen regardless of the case
+
+    if (trailing_key == 0) { //there is no order or new index is the last order in the linked list, or new order is the first order
+        constraint new_order.next_key == 0;
+        constraint leading_order_next == 0 || leading_order_next == nil;
+    }
+
+    if (leading_key != 0 && trailing_key != 0) { //new order is not the first order and there is an order after it
+        constraint leading_order_next == trailing_key;
+    }
+
+    // if this is the best order price-wise, verify and update the first order pointer
+    if (leading_key == 0) {
+        constraint first_order_index' == new_index;
+        constraint first_order_index == trailing_key;
+    }else{
+        // first order index is not changing
+        constraint first_order_index' == first_order_index;
+    }
+
+    // verifies that the new order is in correct price-time priority order
+    if(leading_order_price != nil && leading_order_price != 0){
+        constraint new_order.price >= leading_order_price;
+    }
+
+    if (leading_order_next != 0 && leading_order_next != nil) {
+        constraint new_order.price < trailing_order_price;
+    }
+
+}
+
+predicate removeLimitOrderAsk(leading_key: int, trailing_key: int, middle_index: int){
+    //mutate storage
+    let middle_slot: order = mut storage::ask_orders[middle_index];
+    let leading_order_next: int =  mut storage::ask_orders[leading_key].next_key;
+    let first_order_index: int = mut storage::first_ask_order;
+    //read storage
+    let leading_order_price: int =  storage::ask_orders[leading_key].price;
+    let trailing_order_price: int =  storage::ask_orders[trailing_key].price;
+
+    //verify solver updated the middle order to zero 
+    constraint middle_slot'.max_amnt == 0;
+    constraint middle_slot'.price == 0;
+    constraint middle_slot'.isBid == false;
+    constraint middle_slot'.addr == 0x0000000000000000000000000000000000000000000000000000000000000000;
+    constraint middle_slot'.auth == 0x0000000000000000000000000000000000000000000000000000000000000000;
+    constraint middle_slot'.next_key == 0;
+    
+    //update leading order
+    if (leading_key != 0) { //middle order is not the first order
+        constraint leading_order_next' == trailing_key;
+        constraint leading_order_next == middle_index;
+    }
+
+    //verify order info
+    constraint middle_index > 0; //0 index is nil order
+
+    constraint middle_slot.next_key == trailing_key; // this should happen regardless of the case
+    
+    if (trailing_key == 0) { //there is no order or new index is the last order in the linked list, or new order is the first order
+        constraint leading_order_next' == 0;
+    }
+
+    if (leading_key != 0 && trailing_key != 0) { //new order is not the first order and there is an order after it
+        constraint leading_order_next' == trailing_key;
+    }
+
+    // if this is the best order price-wise, verify and update the first order pointer
+    if (leading_key == 0) {
+        constraint first_order_index == middle_index;
+        constraint first_order_index' == trailing_key;
+    }else{
+        // first order index is not changing    
+        constraint first_order_index' == first_order_index;
+    }
+}
+
+predicate settle(
+    partial_amount_bid: int,
+    partial_amount_ask: int,
+    partial_bid_index: int,
+    partial_ask_index: int,
+    bid_orders: settle_order[10],
+    ask_orders: settle_order[10],
+    solver_orders: order[2]
+    )
+    { 
+    // first solver order is bid, second is ask
+    let partial_bid_order: settle_order = cond{
+        partial_bid_index == 0 => bid_orders[0],
+        partial_bid_index == 1 => bid_orders[1],
+        partial_bid_index == 2 => bid_orders[2],
+        partial_bid_index == 3 => bid_orders[3],
+        partial_bid_index == 4 => bid_orders[4],
+        partial_bid_index == 5 => bid_orders[5],
+        partial_bid_index == 6 => bid_orders[6],
+        partial_bid_index == 7 => bid_orders[7],
+        partial_bid_index == 8 => bid_orders[8],
+        partial_bid_index == 9 => bid_orders[9],
+        else => bid_orders[0]
+    };
+
+    let partial_ask_order: settle_order = cond{
+        partial_ask_index == 0 => ask_orders[0],
+        partial_ask_index == 1 => ask_orders[1],
+        partial_ask_index == 2 => ask_orders[2],
+        partial_ask_index == 3 => ask_orders[3],
+        partial_ask_index == 4 => ask_orders[4],
+        partial_ask_index == 5 => ask_orders[5],
+        partial_ask_index == 6 => ask_orders[6],
+        partial_ask_index == 7 => ask_orders[7],
+        partial_ask_index == 8 => ask_orders[8],
+        partial_ask_index == 9 => ask_orders[9],
+        else => ask_orders[0]
+    };
+    
+    @verify_bids(partial_amount_bid; ~bid_orders);
+    @verify_asks(partial_amount_ask; ~ask_orders);
+
+    let sum_all_zero_bids: int = @sum_zero_bid(0; ~bid_orders) - (storage::bid_orders[partial_bid_order.index].max_amnt - partial_amount_bid) * storage::bid_orders[partial_bid_order.index].price;
+    let sum_all_one_bids: int = @sum_one_bid(0; ~bid_orders) - (storage::bid_orders[partial_bid_order.index].max_amnt - partial_amount_bid);
+
+    let sum_all_zero_asks: int = @sum_zero_ask(0; ~ask_orders) - (storage::ask_orders[partial_ask_order.index].max_amnt - partial_amount_ask) * storage::ask_orders[partial_ask_order.index].price;
+    let sum_all_one_asks: int = @sum_one_ask(0; ~ask_orders) - (storage::ask_orders[partial_ask_order.index].max_amnt - partial_amount_ask);
+
+    constraint -sum_all_zero_bids + sum_all_zero_asks - solver_orders[0].max_amnt * solver_orders[0].price + solver_orders[1].max_amnt * solver_orders[1].price <= 0;
+    constraint sum_all_one_bids - sum_all_one_asks + solver_orders[0].max_amnt - solver_orders[1].max_amnt <= 0;
+
+    let solver_bal0: int = mut storage::balances_0[solver_orders[0].addr];
+    let solver_bal1: int = mut storage::balances_1[solver_orders[0].addr];
+
+    constraint solver_orders[0].addr == solver_orders[1].addr;
+
+    constraint solver_bal0' == solver_bal0 - solver_orders[0].max_amnt * solver_orders[0].price + solver_orders[1].max_amnt * solver_orders[1].price;
+    constraint solver_bal1' == solver_bal1 + solver_orders[0].max_amnt - solver_orders[1].max_amnt;
+
+    constraint solver_bal0' >= 0;
+    constraint solver_bal1' >= 0;
+}
+
+predicate settleMarketOrders(
+    partial_amount_bid: int,
+    partial_amount_ask: int,
+    partial_bid_index: int,
+    partial_ask_index: int,
+    bid_market_orders: market_order[10],
+    ask_market_orders: market_order[10],
+    bid_limit_orders: settle_order[10],
+    ask_limit_orders: settle_order[10],
+    average_price_bids: int,
+    average_price_asks: int,
+    solver_orders: order[2]
+    )
+    { 
+    let partial_bid_order: settle_order = cond{
+        partial_bid_index == 0 => bid_limit_orders[0],
+        partial_bid_index == 1 => bid_limit_orders[1],
+        partial_bid_index == 2 => bid_limit_orders[2],
+        partial_bid_index == 3 => bid_limit_orders[3],
+        partial_bid_index == 4 => bid_limit_orders[4],
+        partial_bid_index == 5 => bid_limit_orders[5],
+        partial_bid_index == 6 => bid_limit_orders[6],
+        partial_bid_index == 7 => bid_limit_orders[7],
+        partial_bid_index == 8 => bid_limit_orders[8],
+        partial_bid_index == 9 => bid_limit_orders[9],
+        else => bid_limit_orders[0]
+    };
+
+    let partial_ask_order: settle_order = cond{
+        partial_ask_index == 0 => ask_limit_orders[0],
+        partial_ask_index == 1 => ask_limit_orders[1],
+        partial_ask_index == 2 => ask_limit_orders[2],
+        partial_ask_index == 3 => ask_limit_orders[3],
+        partial_ask_index == 4 => ask_limit_orders[4],
+        partial_ask_index == 5 => ask_limit_orders[5],
+        partial_ask_index == 6 => ask_limit_orders[6],
+        partial_ask_index == 7 => ask_limit_orders[7],
+        partial_ask_index == 8 => ask_limit_orders[8],
+        partial_ask_index == 9 => ask_limit_orders[9],
+        else => ask_limit_orders[0]
+    };
+    
+    // sum all market orders
+    let sum_bid_market_orders: int = @sum_market(0; ~bid_market_orders);
+    let sum_ask_market_orders: int = @sum_market(0; ~ask_market_orders);
+
+    // sum all limit orders and verify balances are updated
+    @verify_bids(partial_amount_bid; ~bid_limit_orders);
+    @verify_asks(partial_amount_ask; ~ask_limit_orders);
+
+    let sum_all_zero_bids: int = @sum_zero_bid(0; ~bid_limit_orders) - (storage::bid_orders[partial_bid_order.index].max_amnt - partial_amount_bid) * storage::bid_orders[partial_bid_order.index].price;
+    let sum_all_one_bids: int = @sum_one_bid(0; ~bid_limit_orders) - (storage::bid_orders[partial_bid_order.index].max_amnt - partial_amount_bid);
+
+    let sum_all_zero_asks: int = @sum_zero_ask(0; ~ask_limit_orders) - (storage::ask_orders[partial_ask_order.index].max_amnt - partial_amount_ask) * storage::ask_orders[partial_ask_order.index].price;
+    let sum_all_one_asks: int = @sum_one_ask(0; ~ask_limit_orders) - (storage::ask_orders[partial_ask_order.index].max_amnt - partial_amount_ask);
+
+    // verify average prices given by solver are correct
+    constraint sum_all_zero_bids/sum_all_one_bids == average_price_bids;
+    constraint sum_all_zero_asks/sum_all_one_asks == average_price_asks;
+
+    // verify market orders are getting fair price
+    constraint sum_ask_market_orders == sum_all_one_bids; // market asks => limit order bids
+    constraint sum_bid_market_orders == sum_all_one_asks; // market bids => limit order asks
+    
+    //pro-rata market orders
+    @distribute_market_orders_bids(average_price_asks; ~bid_market_orders);
+    @distribute_market_orders_asks(average_price_bids; ~ask_market_orders);
+}

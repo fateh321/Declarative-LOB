@@ -1,0 +1,11 @@
+[package]
+name = "orderbook"
+kind = "contract"
+#entry-point = "orderbook.pnt"
+entry-point = "pt_priority_orderbook.pnt"
+[dependencies]
+# Library dependencies go here.
+std = { path = "../std" }
+
+[contract-dependencies]
+# Contract dependencies go here.
